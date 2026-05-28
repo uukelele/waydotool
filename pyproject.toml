@@ -1,9 +1,12 @@
 [project]
 name = "waydotool"
 version = "0.1.0"
-description = "A Python automation toolkit for Wayland, built on `ydotool` and `kdotool`."
+description = "A Python automation toolkit that supports Wayland."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "evdev>=1.9.3",
+    "evdev>=1.9.3; sys_platform == 'linux'",
+    "pyautogui>=0.9.54",
+    "pygetwindow>=0.0.9",
+    "pynput>=1.8.2",
 ]

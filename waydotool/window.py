@@ -1,338 +1,311 @@
-# TODO: Write Python-Rust mappings between kdotool and waydotool using maturin
-# For now, just reimplement everything using subprocess
+from __future__ import annotations
+import typing
 
-import subprocess as sp
-from typing import Union, Literal, TypedDict, List, Optional
+from .libs import kdotool
+from .utils import get_platform, Platform, kde_version
 
-WindowID = Union[str, Literal['%1', '%@', '%N']]
+platform = get_platform()
 
-WindowStateProperty = Literal[
-    "ABOVE",
-    "BELOW",
-    "SKIP_TASKBAR",
-    "SKIP_PAGER",
-    "FULLSCREEN",
-    "SHADED",
-    "DEMANDS_ATTENTION",
-    "NO_BORDER",
-    "MINIMIZED",
-    "MAXIMIZED_HORZ",
-    "MAXIMIZED_VERT",
-    "MAXIMIZED",
-]
+kde = kde_version()
 
-class WindowGeometry(TypedDict):
-    x: int
-    y: int
-    width: int
-    height: int
+_kd: kdotool.Kdotool | None = None
 
-class KdotoolException(Exception):
-    """Raised when kdotool returns a non-zero exit code."""
-    exit_code: int
-    stderr: str
+if platform == Platform.WINDOWS:
+    import ctypes as ct
 
-    def __init__(self, exit_code: int, stderr: str):
-        self.exit_code = exit_code
-        self.stderr = stderr
+    if typing.TYPE_CHECKING:
+        import pygetwindow._pygetwindow_win as _pw
+    else:
+        import pygetwindow as _pw
+
+if kde and kde >= 6:
+    _kd = kdotool.Kdotool()
+
+class Window:
+    """
+    Basically just a window on your desktop.
+    """
 
 
-class Kdotool:
-    __kdotool_version_used__ = '0.3.0'
-    
-    def __init__(self):
-        return
-    
-    def _run(self, args: List[str]) -> str:
+    id: str
+    _pwWindow: _pw.Win32Window
 
-        cmd = ['kdotool', *args]
-
-        proc = sp.run(cmd, capture_output=True, text=True)
-
-        if proc.returncode != 0:
-            raise KdotoolException(
-                exit_code = proc.returncode,
-                stderr = proc.stderr.strip()
-            )
-
-        return proc.stdout.strip()
-    
-    # Window Query Commands:
-
-    def search(
-        self,
-        pattern: str,
-        title: bool = False,
-        class_: bool = False,
-        classname: bool = False,
-        role: bool = False,
-        case_sensitive: bool = False,
-        pid: Optional[int] = None,
-        desktop: Optional[int] = None,
-        limit: Optional[int] = None,
-        match_all: bool = False,
-        match_any: bool = False
-    ) -> List[WindowID]:
+    def __init__(self, id: str, _pwWindow: _pw.Win32Window | None = None):
         """
-        Search for windows with titles, names, or classes matching a regular
-        expression pattern.
+        You shouldn't really be constructing a Window yourself, unless you have a really specific need.
 
-        The default options are --title --class --classname --role (unless you
-        specify one or more of --title, --class, --classname, or --role).
+        But in case you are:
 
-        :param pattern: The regular expression pattern to match.
-        :param title: Match against the window title. This is the same string that is displayed in the window titlebar.
-        :param class_: Match against the window class.
-        :param classname: Match against the window classname.
-        :param role: Match against the window role.
-        :param case_sensitive: Match against the window title case-sensitively.
-        :param pid: Match windows that belong to a specific process id. This may not work for some X applications that do not set this metadata on its windows.
-        :param desktop: Only match windows on a certain desktop. The default is to search all desktops.
-        :param limit: Stop searching after finding NUMBER matching windows. The default is no search limit (which is equivalent to '--limit 0')
-        :param match_all: Require that all conditions be met.
-        :param match_any: Match windows that match any condition (logically, 'or'). This is on by default.
+        Args:
+            id: The window ID. For `kdotool` this is a UUID-like ID. For `pygetwindow` it's the window's `hWnd`.
+            _pwWindow: (Optional) A reference to the `pygetwindow.Win32Window` object.
         """
-        args = ["search"]
-        if case_sensitive: args.append("--case-sensitive")
-        if class_: args.append("--class")
-        if classname: args.append("--classname")
-        if role: args.append("--role")
-        if title: args.append("--title")
-        if pid is not None: args.extend(["--pid", str(pid)])
-        if desktop is not None: args.extend(["--desktop", str(desktop)])
-        if limit is not None: args.extend(["--limit", str(limit)])
-        if match_all: args.append("--all")
-        if match_any: args.append("--any")
+
+        self.id = id
+        self._pwWindow = _pwWindow
+
+    @classmethod
+    def from_pw(cls, pwWindow: _pw.Win32Window):
+        """
+        You shouldn't really be using this function yourself, unless you have a really specific need.
+
+        But in case you are:
+
+        This function instantiates a Window from a `pygetwindow.Win32Window` object.
+        It finds the _hWnd on the object and sets the class's `id` to it, as well as populating the `_pwWindow` attribute.
+
+        Args:
+            pwWindow: The reference to the original `Win32Window`.
+        """
+        return cls(id=pwWindow._hWnd, _pwWindow=pwWindow)
+
+
+    @staticmethod
+    def search(text: str) -> list[Window]:
+        """
+        Search windows for a window title.
+
+        Args:
+            text: The specific text you are looking for in the window title.
+
+        Returns:
+            A list of windows that you can use. Of course, this list could be empty if there are no matches.
+
+        Raises:
+            NotImplementedError: If searching windows is not implemented for your platform.
+        """
+
+        if _kd:
+            return [Window(id) for id in _kd.search(text, title=True)]
         
-        args.append(pattern)
-        output = self._run(args)
-        return output.splitlines() if output else []
-
-    def get_active_window(self) -> WindowID:
-        """
-        Select the currently active window.
-        """
-        return self._run(["getactivewindow"])
-
-    def get_mouse_location(self, shell: bool = False) -> str:
-        """
-        Outputs the x, y, screen, and window id of the mouse cursor.
-
-        :param shell: output shell data you can eval.
-        """
-        args = ["getmouselocation"]
-        if shell: args.append("--shell")
-        return self._run(args)
-
-    # Window Action Commands:
-
-    def get_window_name(self, window: WindowID = "%1") -> str:
-        """
-        Output the name of a window. This is the same string that is displayed
-        in the window titlebar.
-
-        :param window: The window to target.
-        """
-        return self._run(["getwindowname", window])
-
-    def get_window_class_name(self, window: WindowID = "%1") -> str:
-        """
-        Output the class name of a window.
-
-        :param window: The window to target.
-        """
-        return self._run(["getwindowclassname", window])
-
-    def get_window_geometry(self, window: WindowID = "%1") -> WindowGeometry:
-        """
-        Output the geometry (location and position) of a window. The values
-        include: x, y, width, height.
-
-        :param window: The window to target.
-        """
-        out = self._run(["getwindowgeometry", window])
-        parts = out.replace(',', '').split()
-        data = {}
-        for i in range(0, len(parts), 2):
-            key = parts[i].replace(':', '').lower()
-            val = int(parts[i+1])
-            data[key] = val
-        return WindowGeometry(x=data['x'], y=data['y'], width=data['width'], height=data['height'])
-
-    def get_window_id(self, window: WindowID = "%1") -> str:
-        """
-        Output the ID of a window.
-
-        :param window: The window to target.
-        """
-        return self._run(["getwindowid", window])
-
-    def get_window_pid(self, window: WindowID = "%1") -> str:
-        """
-        Output the PID owning a window. This requires effort from the
-        application owning a window and may not work for all windows.
-
-        :param window: The window to target.
-        """
-        return self._run(["getwindowpid", window])
-
-    def window_activate(self, window: WindowID = "%1"):
-        """
-        Activate a window. If the window is on another desktop, we will switch
-        to that desktop.
-
-        :param window: The window to target.
-        """
-        self._run(["windowactivate", window])
-
-    def window_raise(self, window: WindowID = "%1"):
-        """
-        Raise a window to the top of the window stack. (KDE 6 only)
-
-        :param window: The window to target.
-        """
-        self._run(["windowraise", window])
-
-    def window_minimize(self, window: WindowID = "%1"):
-        """
-        Minimize a window.
-
-        :param window: The window to target.
-        """
-        self._run(["windowminimize", window])
-
-    def window_close(self, window: WindowID = "%1"):
-        """
-        Close a window.
-
-        :param window: The window to target.
-        """
-        self._run(["windowclose", window])
-
-    def window_size(self, width: Union[int, str], height: Union[int, str], window: WindowID = "%1"):
-        """
-        Resize a window. Percentages are valid for WIDTH and HEIGHT. They are
-        relative to the geometry of the screen the window is on.
-
-        If the given WIDTH is literally 'x', then the window's current width
-        will be unchanged. The same applies for 'y' for HEIGHT.
-
-        :param window: The window to target.
-        :param width: New width.
-        :param height: New height.
-        """
-        self._run(["windowsize", window, str(width), str(height)])
-
-    def window_move(self, x: Union[int, str], y: Union[int, str], window: WindowID = "%1", relative: bool = False):
-        """
-        Move a window. Percentages are valid for X and Y. They are relative to
-        the geometry of the screen the window is on.
-
-        If the given x coordinate is literally 'x', then the window's current
-        x position will be unchanged. The same applies for 'y'.
-
-        :param x: New x coordinate.
-        :param y: New y coordinate.
-        :param window: The window to target.
-        :param relative: Make movement relative to the current window position.
-        """
-        args = ["windowmove"]
-        if relative: args.append("--relative")
-        args.extend([window, str(x), str(y)])
-        self._run(args)
-
-    def window_state(
-        self,
-        window: WindowID = "%1",
-        add: Optional[Union[WindowStateProperty, List[WindowStateProperty]]] = None,
-        remove: Optional[Union[WindowStateProperty, List[WindowStateProperty]]] = None,
-        toggle: Optional[Union[WindowStateProperty, List[WindowStateProperty]]] = None,
-    ):
-        """
-        Change a property on a window.
-
-        NOTE: You can specify multiple --add, --remove, and --toggle options in a
-        single command. For example, you can do:
-          kdotool windowstate --add above --remove below --toggle skip_taskbar
-
-        :param window: The window to target.
-        :param add: show window above all others (always on top), etc.
-        :param remove: remove property.
-        :param toggle: toggle property.
-        """
-        args = ["windowstate"]
+        if platform == Platform.WINDOWS:
+            return [Window.from_pw(w) for w in _pw.getWindowsWithTitle(text)]
         
-        def process_props(flag, props):
-            if not props: return
-            if isinstance(props, str): props = [props]
-            for p in props:
-                args.extend([flag, p])
-
-        process_props("--add", add)
-        process_props("--remove", remove)
-        process_props("--toggle", toggle)
-        args.append(window)
-        self._run(args)
-
-    def get_desktop_for_window(self, window: WindowID = "%1") -> str:
-        """
-        Output the desktop number that a window is on.
-
-        :param window: The window to target.
-        """
-        return self._run(["get_desktop_for_window", window])
-
-    def set_desktop_for_window(self, number: Union[int, str], window: WindowID = "%1"):
-        """
-        Move a window to a different desktop.
-        Specify the desktop number or "current_desktop" or "all".
-
-        :param window: The window to target.
-        :param number: The desktop number or "current_desktop" or "all".
-        """
-        self._run(["set_desktop_for_window", window, str(number)])
-
-    # Global Commands:
-
-    def get_desktop(self) -> str:
-        """
-        Output the current desktop number.
-        """
-        return self._run(["get_desktop"])
-
-    def set_desktop(self, number: int):
-        """
-        Change the current desktop to <number>.
-
-        :param number: The desktop number.
-        """
-        self._run(["set_desktop", str(number)])
-
-    def get_num_desktops(self) -> str:
-        """
-        Output the current number of desktops.
-        """
-        return self._run(["get_num_desktops"])
+        raise NotImplementedError(f"Searching windows not implemented for {platform}.")
     
-_kd = Kdotool()
+    @staticmethod
+    def all() -> list[Window]:
+        """
+        Returns all open windows.
 
-search = _kd.search
-get_active = _kd.get_active_window
-get_mouse_location = _kd.get_mouse_location
-get_name = _kd.get_window_name
-get_class_name = _kd.get_window_class_name
-get_geometry = _kd.get_window_geometry
-get_id = _kd.get_window_id
-get_pid = _kd.get_window_pid
-activate = _kd.window_activate
-raise_ = _kd.window_raise
-minimize = _kd.window_minimize
-close = _kd.window_close
-size = _kd.window_size
-move = _kd.window_move
-state = _kd.window_state
-get_desktop_for_window = _kd.get_desktop_for_window
-set_desktop_for_window = _kd.set_desktop_for_window
-get_desktop = _kd.get_desktop
-set_desktop = _kd.set_desktop
-get_num_desktops = _kd.get_num_desktops
+        Returns:
+            A list of windows that you can use. Of course, this list could be empty if there are no opened windows.
+
+        Raises:
+            NotImplementedError: If listing windows is not implemented for your platform.
+        """
+                
+        if _kd:
+            return [Window(id) for id in _kd.search('')]
+        
+        if platform == Platform.WINDOWS:
+            return [Window.from_pw(w) for w in _pw.getAllWindows()]
+        
+        raise NotImplementedError(f"Listing windows not implemented for {platform}.")
+
+    @staticmethod
+    def active() -> Window:
+        """
+        Returns the currently focused window.
+
+        Returns:
+            A Window object that you can use.
+
+        Raises:
+            NotImplementedError: If getting the active window is not implemented for your platform.
+        """
+                
+        if _kd:
+            return Window(_kd.get_active_window())
+
+        if platform == Platform.WINDOWS:
+            return Window.from_pw(_pw.getActiveWindow())
+
+        raise NotImplementedError(f"Getting active window not implemented for {platform}.")
+    
+    @property
+    def title(self) -> str:
+        """
+        The title of the window.
+        """
+                
+        if _kd:
+            return _kd.get_window_name(self.id)
+        
+        if platform == Platform.WINDOWS:
+            return self._pwWindow.title
+        
+        raise NotImplementedError(f"Window title not implemented for {platform}.")
+        
+    @property
+    def geometry(self) -> kdotool.WindowGeometry:
+        """
+        The geometry of a window.
+
+        It's a typed dictionary with `height`, `width`, `x`, and `y` values.
+        """
+
+        if _kd:
+            return _kd.get_window_geometry(self.id)
+        
+        if platform == Platform.WINDOWS:
+            rect = self._pwWindow._getWindowRect()
+            if not rect: return None
+            x, y, right, bottom = rect
+            width = right - x
+            height = bottom - y
+
+            return {
+                "height": height,
+                "width": width,
+                "x": x,
+                "y": y,
+            }
+        
+        raise NotImplementedError(f"Window geometry not implemented for {platform}.")
+    
+    @property
+    def height(self) -> int:
+        """The height of the window."""
+        return self.geometry["height"]
+
+    @property
+    def width(self) -> int:
+        """The width of the window."""
+        return self.geometry["width"]
+
+    @property
+    def x(self) -> int:
+        """The `x` position of the window."""
+        return self.geometry["x"]
+
+    @property
+    def y(self) -> int:
+        """The `y` position of the window."""
+        return self.geometry["y"]
+
+    def activate(self):
+        """
+        Activate this window, and raise it to the foreground.
+
+        Raises:
+            NotImplementedError: If activating windows is not implemented for your platform.
+        """
+        
+        if _kd:
+            return _kd.window_activate(self.id)
+
+        if platform == Platform.WINDOWS:
+            return self._pwWindow.activate()
+
+        raise NotImplementedError(f"Activating windows not implemented for {platform}.")
+    
+    def minimize(self):
+        """
+        Minimize this window.
+
+        Raises:
+            NotImplementedError: If minimizing windows is not implemented for your platform.
+        """
+
+        if _kd:
+            return _kd.window_minimize(self.id)
+
+        if platform == Platform.WINDOWS:
+            return self._pwWindow.minimize()
+        
+        raise NotImplementedError(f"Minimizing windows not implemented for {platform}.")
+        
+    def maximise(self):
+        """
+        Maximize this window.
+
+        Raises:
+            NotImplementedError: If maximizing windows is not implemented for your platform.
+        """
+        if _kd:
+            return _kd.window_state(self.id, add=kdotool.WindowStateProperty['MAXIMIZED'])
+
+        if platform == Platform.WINDOWS:
+            return self._pwWindow.maximize()
+        
+        raise NotImplementedError(f"Minimizing windows not implemented for {platform}.")
+    
+    def fullscreen(self):
+        """
+        Fullscreen this window.
+
+        Raises:
+            NotImplementedError: If fullscreening windows is not implemented for your platform.
+        """
+
+        if _kd:
+            return _kd.window_state(self.id, add=kdotool.WindowStateProperty['FULLSCREEN'])
+        
+        raise NotImplementedError(f"Fullscreening windows not implemented for {platform}.")
+
+    def close(self):
+        """
+        Close this window.
+
+        Raises:
+            NotImplementedError: If closing windows is not implemented for your platform.
+        """
+        if _kd:
+            return _kd.window_close(self.id)
+
+        if platform == Platform.WINDOWS:
+            return self._pwWindow.close()
+        
+        raise NotImplementedError(f"Closing windows not implemented for {platform}.")
+    
+    def resize(self, width: float, height: float, relative: bool = False):
+        """
+        Resize this window.
+
+        Args:
+            width: The new width of the window, or the relative width you want to use (e.g. 0.4 -> 40% of the current width, or a constant like 320px).
+            height: The new height of the window, or the relative height you want to use (e.g. 0.6 -> 60% of the current height, or a constant like 480px).
+
+        Raises:
+            NotImplementedError: If resizing windows is not implemented for your platform.
+        """
+        if _kd:
+            if relative:
+                width = f"{width*100}%"
+                height = f"{height*100}%"
+            return _kd.window_size(width, height, self.id)
+        
+        if platform == Platform.WINDOWS:
+            if relative:
+                return self._pwWindow.resizeRel(width, height)
+            else:
+                return self._pwWindow.resizeTo(width, height)
+        
+        raise NotImplementedError(f"Resizing windows not implemented for {platform}.")
+
+    def move(self, x: float, y: float, relative: bool = False):
+        """
+        Move this window.
+
+        Args:
+            x: The new `x` position of the window, or the relative `x` you want to use (e.g. 0.4 -> 40% of the current `x`, or a constant like 320px).
+            y: The new `y` height of the window, or the relative `y` you want to use (e.g. 0.6 -> 60% of the current `y`, or a constant like 480px).
+
+        Raises:
+            NotImplementedError: If moving windows is not implemented for your platform.
+        """
+
+        if _kd:
+            if relative:
+                x = f"{x*100}%"
+                y = f"{y*100}%"
+            return _kd.window_move(x, y, relative=relative)
+        
+        if platform == Platform.WINDOWS:
+            if relative:
+                return self._pwWindow.moveRel(x, y)
+            else:
+                return self._pwWindow.moveTo(x, y)
+        
+        raise NotImplementedError(f"Moving windows not implemented for {platform}.")

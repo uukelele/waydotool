@@ -1,217 +1,206 @@
-# TODO: Write Python-C mappings between ydotool and waydotool
-# For now, just reimplement everything using subprocess
+from enum import Enum
+from evdev.ecodes import ecodes
 
-import subprocess as sp
-import os
-from typing import *
+from .libs import ydotool, kdotool
+from .utils import get_platform, Platform, kde_version
 
-MouseButton = Literal[
-    "0x00", 0x00,
-    "0x01", 0x01,
-    "0x02", 0x02,
-    "0x03", 0x03,
-    "0x04", 0x04,
-    "0x05", 0x05,
-    "0x06", 0x06,
-    "0x07", 0x07,
-    "0xC0", 0xC0,
-    "0xC1", 0xC1,
-    "0xC2", 0xC2,
-]
+platform = get_platform()
 
-class YdotoolException(Exception):
-    """Raised when ydotool returns a non-zero exit code."""
-    exit_code: int
-    stderr: str
+kde = kde_version()
 
-    def __init__(self, exit_code: int, stderr: str):
-        self.exit_code = exit_code
-        self.stderr = stderr
+_yd: ydotool.Ydotool | None = None
+_kd: kdotool.Kdotool | None = None
 
-class Ydotool:
-    def __init__(self, socket_path: Optional[str] = None):
-        """
-        :param socket_path: Optional path to the ydotoold socket. 
-                            Defaults to /tmp/.ydotool_socket or environment variable.
-        """
-        if socket_path:
-            os.environ["YDOTOOL_SOCKET"] = socket_path
-        return
+if platform == Platform.WAYLAND:
+    _yd = ydotool.Ydotool()
+else:
+    import pyautogui as _pg # Trying to import this on Wayland, even if unused, errors.
 
-    def _run(self, args: List[str]) -> str:
-        cmd = ['ydotool', *args]
-        
-        proc = sp.run(cmd, capture_output=True, text=True)
+if kde and kde >= 6:
+    _kd = kdotool.Kdotool()
 
-        if proc.returncode != 0:
-            raise YdotoolException(
-                exit_code=proc.returncode,
-                stderr=proc.stderr.strip()
-            )
+class MouseButton(Enum):
+    """
+    Mouse Buttons that you can send click events with.
 
-        return proc.stdout.strip()
+    0xC0 is left, 0xC1 is right, 0xC2 is middle.
+    The rest, you probably don't need to use.
+    """
 
-    def click(
-        self,
-        buttons: Union[MouseButton, str, List[Union[MouseButton, str]]],
-        repeat: Optional[int] = None,
-        next_delay: Optional[int] = None,
-        press_release: bool = False
-    ) -> str:
-        """
-        Click mouse buttons.
+    BTN_0 = 0x00
+    BTN_1 = 0x01
+    BTN_2 = 0x02
+    BTN_3 = 0x03
+    BTN_4 = 0x04
+    BTN_5 = 0x05
+    BTN_6 = 0x06
+    BTN_7 = 0x07
+    BTN_C0 = 0xC0
+    BTN_C1 = 0xC1
+    BTN_C2 = 0xC2
 
-        Options:
-          -r, --repeat=N             Repeat entire sequence N times
-          -D, --next-delay=N         Delay N milliseconds between input events (up/down,                                a complete click means doubled time)
-          -P, --press-release        Press & release mouse button to complete a click, (optional)
+class MouseSemantic(Enum):
+    """
+    Semantic versions of the mouse buttons which you can send click events.
+    """
+    
+    LEFT = "LEFT"
+    MIDDLE = "MIDDLE"
+    RIGHT = "RIGHT"
+    PRIMARY = "PRIMARY"
+    SECONDARY = "SECONDARY"
 
-        How to specify buttons:
-          Now all mouse buttons are represented using hexadecimal numeric values, with an optional
-        bit mask to specify if mouse up/down needs to be omitted.
-          0x00 - LEFT
-          0x01 - RIGHT
-          0x02 - MIDDLE
-          0x03 - SIDE
-          0x04 - EXTR
-          0x05 - FORWARD
-          0x06 - BACK
-          0x07 - TASK
-          0x40 - Mouse down
-          0x80 - Mouse up
-          Examples:
-            0x00: chooses left button, but does nothing (you can use this to implement extra sleeps)
-            0xC0: left button click (down then up)
-            0x41: right button down
-            0x82: middle button up
-          The '0x' prefix can be omitted if you want.
-        """
-        args = ["click"]
-        if repeat is not None: args.extend(["--repeat", str(repeat)])
-        if next_delay is not None: args.extend(["--next-delay", str(next_delay)])
-        if press_release: args.append("--press-release")
-        
-        if isinstance(buttons, list):
-            args.extend(buttons)
+SEMANTIC_TO_BUTTON = {
+    "LEFT": MouseButton.BTN_C0,
+    "MIDDLE": MouseButton.BTN_C2,
+    "RIGHT": MouseButton.BTN_C1,
+    "PRIMARY": MouseButton.BTN_C0,
+    "SECONDARY": MouseButton.BTN_C1,
+}
+
+def click(mouse_button: MouseButton | MouseSemantic | str = MouseSemantic.PRIMARY):
+    """
+    Clicks where the mouse is.
+
+    Args:
+        mouse_button: The button you want to click. Can be `LEFT`, `MIDDLE`, `RIGHT`, `PRIMARY`, `SECONDARY`, or a hexadecimal keycode.
+    """
+
+    if platform == Platform.WAYLAND:
+
+        if isinstance(mouse_button, MouseSemantic):
+            mouse_button = SEMANTIC_TO_BUTTON[mouse_button.value]
+        elif isinstance(mouse_button, str):
+            mouse_button = SEMANTIC_TO_BUTTON.get(mouse_button.upper(), mouse_button)
+
+        if isinstance(mouse_button, MouseButton):
+            button_str = f"{mouse_button.value:02x}"
         else:
-            args.append(buttons)
+            button_str = mouse_button
+        return _yd.click(buttons=button_str)
+    
+    if isinstance(mouse_button, MouseButton):
+        mouse_button = MouseSemantic(mouse_button.name)
+
+    return _pg.click(button=mouse_button)
+
+def type(text: str, interval: float = 0.0):
+    """
+    Type text using the keyboard.
+
+    Args:
+        text: The text you want to type.
+        interval: The number of seconds between each keypress. Default is 0, so no pause.
+    """
+
+    if platform == Platform.WAYLAND:
+        return _yd.type(text, key_delay=round(interval * 10000))
+    
+    return _pg.typewrite(text, interval=interval)
+
+def hotkey(*keys: str, interval: float = 0.0):
+    """
+    Performs key down presses on the arguments passed in order, then performs key releases in reverse order.
+
+    The effect is that calling hotkey('ctrl', 'shift', 'c') would perform a "Ctrl-Shift-C" hotkey/keyboard shortcut press.
+
+    Args:
+        keys: The keys to press, in order.
+        interval: The number of seconds between each keypress. Default is 0, so no pause.
+    """
+
+    if platform == Platform.WAYLAND:
+
+        def key_to_evdev(key: str) -> int:
+            if key.lower() in ('ctrl', 'shift', 'alt'):
+                key = f'LEFT{key.upper()}'
             
-        return self._run(args)
-
-    def mousemove(
-        self,
-        x: int,
-        y: int,
-        absolute: bool = False,
-        wheel: bool = False
-    ) -> str:
-        """
-        Move mouse pointer or wheel.
-
-        Options:
-          -w, --wheel                Move mouse wheel relatively
-          -a, --absolute             Use absolute position, not applicable to wheel
-          -x, --xpos                 X position
-          -y, --ypos                 Y position
-
-        You need to disable mouse speed acceleration for correct absolute movement.
-        """
-        args = ["mousemove"]
-        if wheel: args.append("--wheel")
-        if absolute: args.append("--absolute")
+            return ecodes[f"KEY_{key.upper()}"]
         
-        args.extend(["-x", str(x), "-y", str(y)])
-        return self._run(args)
+        def hotkeys(*keys: str):
+            codes = [key_to_evdev(k) for k in keys]
+            sq = []
+            for c in codes:            sq.append(f"{c}:1")
+            for c in reversed(codes):  sq.append(f"{c}:0")
+            return ' '.join(sq)
 
-    def type(
-        self,
-        strings: Union[str, List[str]],
-        key_delay: Optional[int] = None,
-        key_hold: Optional[int] = None,
-        next_delay: Optional[int] = None,
-        file: Optional[str] = None,
-        escape: Optional[bool] = None
-    ) -> str:
-        """
-        Type strings.
 
-        Options:
-          -d, --key-delay=N          Delay N milliseconds between keys (the delay between every key down/up pair) (default: 20)
-          -H, --key-hold=N           Hold each key for N milliseconds (the delay between key down and up) (default: 20)
-          -D, --next-delay=N         Delay N milliseconds between command line strings (default: 0)
-          -f, --file=PATH            Specify a file, the contents of which will be be typed as if passed as an argument.
-                                       The filepath may also be '-' to read from stdin
-          -e, --escape=BOOL          Escape enable (1) or disable (0)
+        return _yd.key(hotkeys(*keys), key_delay=round(interval * 1000))
+    
+    return _pg.hotkey(*keys, interval=interval)
 
-        Escape is enabled by default when typing command line arguments, and disabled by default when typing from file and stdin.
-        """
-        args = ["type"]
-        if key_delay is not None: args.extend(["--key-delay", str(key_delay)])
-        if key_hold is not None: args.extend(["--key-hold", str(key_hold)])
-        if next_delay is not None: args.extend(["--next-delay", str(next_delay)])
-        if file is not None: args.extend(["--file", file])
-        if escape is not None: args.extend(["--escape", "1" if escape else "0"])
+def key(key: str):
+    """
+    Press a key on the keyboard (e.g. enter).
+
+    Args:
+        key: The key you want to press.
+    """
+
+    return hotkey([key])
+
+def scroll(dx: int = 0, dy: int = 0):
+    """
+    Vertically or horizontally scroll the mouse wheel relatively by a certain amount.
+
+    Args:
+        dx: The amount to scroll horizontally.
+        dy: The amount to scroll vertically.
+    """
+
+
+    if platform == Platform.WAYLAND:
+        return _yd.mousemove(dx, dy, wheel=True)
+
+    raise NotImplementedError(f"waydotool does not support moving the mouse wheel on {platform}.")
+
+def move_mouse(x: int, y: int):
+    """
+    Move the mouse cursor to a point on the screen, absolutely.
+
+    See the `move_mouse_relative` function if you want to use relative positions.
+
+    Args:
+        x: X coordinate on the screen.
+        y: Y coordinate on the screen.
+    """
+
+    if platform == Platform.WAYLAND:
+        return _yd.mousemove(x, y, absolute=True)
+
+    return _pg.moveTo(x, y)
+
+def move_mouse_relative(dx: int, dy: int):
+    """
+    Move the mouse cursor to a point on the screen, relatively.
+
+    See the `move_mouse` function if you want to use absolute positions.
+
+    Args:
+        dx: Relative X to the screen width.
+        dy: Relative Y to the screen height.
+    """
         
-        if isinstance(strings, list):
-            args.extend(strings)
-        else:
-            args.append(strings)
-            
-        return self._run(args)
+    if platform == Platform.WAYLAND:
+        return _yd.mousemove(dx, dy, absolute=False)
+    
+    return _pg.moveRel(dx, dy)
 
-    def key(
-        self,
-        keycodes: Union[str, List[str]],
-        key_delay: Optional[int] = None
-    ) -> str:
-        """
-        Emit key events.
+def mouse_position() -> tuple[int, int]:
+    """
+    Get the current mouse cursor position.
 
-        Options:
-          -d, --key-delay=N          Delay N milliseconds between key events
+    Returns:
+        The mouse position, as `(x, y)`.
+    """
 
-        Since there's no way to know how many keyboard layouts are there in the world,
-        we're using raw keycodes now.
+    if _kd:
+    
+        info = _kd.get_mouse_location()
 
-        Syntax: <keycode>:<pressed>
-        e.g. 28:1 28:0 means pressing on the Enter button on a standard US keyboard.
-             (where :1 for pressed means the key is down and then :0 means the key is released)     42:1 38:1 38:0 24:1 24:0 38:1 38:0 42:0 - "LOL"
+        return int(info['X']), int(info['Y'])
 
-        Non-interpretable values, such as 0, aaa, l0l, will only cause a delay.
-
-        See `/usr/include/linux/input-event-codes.h' for available key codes (KEY_*).
-        """
-        args = ["key"]
-        if key_delay is not None: args.extend(["--key-delay", str(key_delay)])
-        
-        if isinstance(keycodes, list):
-            args.extend(keycodes)
-        else:
-            args.append(keycodes)
-            
-        return self._run(args)
-
-    def debug(self) -> str:
-        """
-        Internal debug command for ydotool.
-        """
-        return self._run(["debug"])
-
-    def bakers(self) -> str:
-        """
-        These are our honorable bakers:
-
-        Dustin Van Tate Testa
-        Elliot Wolk
-        tofik
-        """
-        return self._run(["bakers"])
-
-_yd = Ydotool()
-
-click = _yd.click
-mousemove = _yd.mousemove
-type = _yd.type
-key = _yd.key
-debug = _yd.debug
-bakers = _yd.bakers
+    if platform == Platform.WAYLAND:
+        raise NotImplementedError("Wayland users can only query mouse position using KDE Plasma >= 6.")
+    
+    return _pg.position()
