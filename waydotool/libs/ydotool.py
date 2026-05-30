@@ -31,8 +31,9 @@ class YdotoolException(Exception):
 class Ydotool:
     def __init__(self, socket_path: Optional[str] = None):
         """
-        :param socket_path: Optional path to the ydotoold socket. 
-                            Defaults to /tmp/.ydotool_socket or environment variable.
+        Args:
+            socket_path: Optional path to the ydotoold socket. 
+                         Defaults to /tmp/.ydotool_socket or environment variable.
         """
         if socket_path:
             os.environ["YDOTOOL_SOCKET"] = socket_path
@@ -61,30 +62,33 @@ class Ydotool:
         """
         Click mouse buttons.
 
-        Options:
-          -r, --repeat=N             Repeat entire sequence N times
-          -D, --next-delay=N         Delay N milliseconds between input events (up/down,                                a complete click means doubled time)
-          -P, --press-release        Press & release mouse button to complete a click, (optional)
+        Args:
+            buttons: The button codes to click.
+            reapeat: Repeat entire sequence N times
+            next_delay: Delay N milliseconds between input events (up/down, a complete click means doubled time)
+            press_release: Press & release mouse button to complete a click, (optional)
 
         How to specify buttons:
-          Now all mouse buttons are represented using hexadecimal numeric values, with an optional
+            Now all mouse buttons are represented using hexadecimal numeric values, with an optional
         bit mask to specify if mouse up/down needs to be omitted.
-          0x00 - LEFT
-          0x01 - RIGHT
-          0x02 - MIDDLE
-          0x03 - SIDE
-          0x04 - EXTR
-          0x05 - FORWARD
-          0x06 - BACK
-          0x07 - TASK
-          0x40 - Mouse down
-          0x80 - Mouse up
-          Examples:
-            0x00: chooses left button, but does nothing (you can use this to implement extra sleeps)
-            0xC0: left button click (down then up)
-            0x41: right button down
-            0x82: middle button up
-          The '0x' prefix can be omitted if you want.
+            0x00 - LEFT
+            0x01 - RIGHT
+            0x02 - MIDDLE
+            0x03 - SIDE
+            0x04 - EXTR
+            0x05 - FORWARD
+            0x06 - BACK
+            0x07 - TASK
+            0x40 - Mouse down
+            0x80 - Mouse up
+
+            Examples:
+                0x00: chooses left button, but does nothing (you can use this to implement extra sleeps)
+                0xC0: left button click (down then up)
+                0x41: right button down
+                0x82: middle button up
+
+            The '0x' prefix can be omitted if you want.
         """
         args = ["click"]
         if repeat is not None: args.extend(["--repeat", str(repeat)])
@@ -110,11 +114,11 @@ class Ydotool:
         """
         Move mouse pointer or wheel.
 
-        Options:
-          -w, --wheel                Move mouse wheel relatively
-          -a, --absolute             Use absolute position, not applicable to wheel
-          -x, --xpos                 X position
-          -y, --ypos                 Y position
+        Args:
+          wheel: Move mouse wheel relatively
+          absolute: Use absolute position, not applicable to wheel
+          x: X position
+          y: Y position
 
         You need to disable mouse speed acceleration for correct absolute movement.
         """
@@ -137,13 +141,14 @@ class Ydotool:
         """
         Type strings.
 
-        Options:
-          -d, --key-delay=N          Delay N milliseconds between keys (the delay between every key down/up pair) (default: 20)
-          -H, --key-hold=N           Hold each key for N milliseconds (the delay between key down and up) (default: 20)
-          -D, --next-delay=N         Delay N milliseconds between command line strings (default: 0)
-          -f, --file=PATH            Specify a file, the contents of which will be be typed as if passed as an argument.
-                                       The filepath may also be '-' to read from stdin
-          -e, --escape=BOOL          Escape enable (1) or disable (0)
+        Args:
+            strings: The text you want to type.
+            key_delay: Delay N milliseconds between keys (the delay between every key down/up pair) (default: 20)
+            key_hold: Hold each key for N milliseconds (the delay between key down and up) (default: 20)
+            next_delay: Delay N milliseconds between command line strings (default: 0)
+            file: Specify a file, the contents of which will be be typed as if passed as an argument.
+                  The filepath may also be '-' to read from stdin
+            escape: Escape enable (1) or disable (0)
 
         Escape is enabled by default when typing command line arguments, and disabled by default when typing from file and stdin.
         """
@@ -169,8 +174,9 @@ class Ydotool:
         """
         Emit key events.
 
-        Options:
-          -d, --key-delay=N          Delay N milliseconds between key events
+        Args:
+            keycodes: List of keycodes to enter.
+            key_delay: Delay N milliseconds between key events
 
         Since there's no way to know how many keyboard layouts are there in the world,
         we're using raw keycodes now.
@@ -201,7 +207,7 @@ class Ydotool:
 
     def bakers(self) -> str:
         """
-        These are our honorable bakers:
+        These are ~~our~~ *ydotool's* honorable bakers:
 
         Dustin Van Tate Testa
         Elliot Wolk

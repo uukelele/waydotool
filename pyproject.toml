@@ -1,12 +1,21 @@
 [project]
 name = "waydotool"
-version = "0.1.0"
+version = "0.1.1"
 description = "A Python automation toolkit that supports Wayland."
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.10"
 dependencies = [
     "evdev>=1.9.3; sys_platform == 'linux'",
+    "mss>=10.2.0",
+    "pillow>=12.2.0",
+    "pipewire-capture>=0.2.9",
     "pyautogui>=0.9.54",
     "pygetwindow>=0.0.9",
     "pynput>=1.8.2",
+    "pyperclip>=1.11.0",
 ]
+
+[project.urls]
+"Homepage" = "https://github.com/uukelele/waydotool"
+"Source" = "https://github.com/uukelele/waydotool"
+"Issues" = "https://github.com/uukelele/waydotool/issues"

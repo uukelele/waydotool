@@ -22,9 +22,11 @@ And no, this repository wasn't vibe coded. I did have to manually write out all 
 ### Prerequisites
 
 - **Wayland**
-    - [`ydotool`](https://github.com/ReimuNotMoe/ydotool) (>=1.0.4) daemon running
+    - [`ydotool`](https://github.com/ReimuNotMoe/ydotool) (>=1.0.4) daemon running and client in PATH
+    - **wlroots**
+        - [`grim`](https://github.com/emersion/grim) installed and in PATH
     - **KDE** (>= 6)
-        - [`kdotool`](https://github.com/jinliu/kdotool) (>= 0.3.0) installed
+        - [`kdotool`](https://github.com/jinliu/kdotool) (>= 0.3.0) installed and in PATH
 
 If you are not on Wayland, everything should work out-of-the-box.
 
@@ -32,9 +34,18 @@ If you are on Wayland, you will need the `ydotool` daemon installed and running.
 
 If you are on Wayland but not KDE, some features will be missing.
 
+If you are on Wayland and wlroots compositor, you will need `grim` for screenshots.
+
+If you are on Wayland and KWin compositor, `spectacle` is used for screenshots and should be already installed.
+
+If you are on Wayland, you need to install `waydotool[wayland]` to use the Portal API for streaming the screen.
+
 ### Installation
 
 ```
+$ # Wayland users:
+$ pip install waydotool[wayland]
+$ # Everyone else:
 $ pip install waydotool
 ```
 
@@ -79,3 +90,10 @@ else:
 ```
 
 There are a lot of exposed functions. They are all documented with docstrings so it should be easy for you to figure out how to use them.
+
+Here are the submodules within `waydotool` for you to use:
+
+- **input** - Use this for dealing with the mouse, keyboard, etc.
+- **window** - Use this for modifying window state (e.g. moving, resizing, minimizing, etc.)
+- **clipboard** - Use this for copying and pasting text from the clipboard. Note that this is simply just the `pyperclip` implementation provided in this library to make your `requirements.txt` shorter and reduce import count :D
+- **screen** - Use this for taking screenshots, or recording the screen.
